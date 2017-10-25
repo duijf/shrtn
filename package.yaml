@@ -7,6 +7,7 @@ ghc-options: -Wall -O2
 
 dependencies:
   - base >= 4.7 && < 5
+  - http-types < 0.10
   - wai < 3.3
   - warp < 3.3
 
