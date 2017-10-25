@@ -10,7 +10,7 @@ main :: IO ()
 main = do
   Warp.runSettings
     shrtnSettings
-    shrtn
+    shrtnApp
 
 shrtnSettings :: Warp.Settings
 shrtnSettings
@@ -18,8 +18,8 @@ shrtnSettings
   $ Warp.setHost "*"
   $ Warp.defaultSettings
 
-shrtn :: Wai.Application
-shrtn _request respond =
+shrtnApp :: Wai.Application
+shrtnApp _request respond =
   respond $
     Wai.responseLBS
       HTTP.status200
