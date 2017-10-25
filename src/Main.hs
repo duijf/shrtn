@@ -11,6 +11,7 @@
 
 module Main where
 
+import qualified Control.Concurrent.Async as Async
 import qualified Data.Aeson as Aeson
 import qualified Data.Text as T
 import qualified Network.HTTP.Types as HTTP
@@ -22,13 +23,21 @@ import Servant
 
 main :: IO ()
 main = do
-  Warp.runSettings
-    shrtnSettings
-    shrtnApp
+  let
+    app =
+      Warp.runSettings
+        (settings 7000)
+        shrtnApp
+    admin =
+      Warp.runSettings
+        (settings 7001)
+        mngmntApp
 
-shrtnSettings :: Warp.Settings
-shrtnSettings
-  = Warp.setPort 7000
+  foldr1 Async.race_ [app, admin]
+
+settings :: Int -> Warp.Settings
+settings port
+  = Warp.setPort port
   $ Warp.setHost "*"
   $ Warp.defaultSettings
 
