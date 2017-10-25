@@ -1,10 +1,24 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Main where
 
+import qualified Data.Aeson as Aeson
+import qualified Data.Text as T
 import qualified Network.HTTP.Types as HTTP
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
+
+import GHC.Generics (Generic)
+import Servant
 
 main :: IO ()
 main = do
@@ -25,3 +39,19 @@ shrtnApp _request respond =
       HTTP.status200
       []
       "Things are working pretty nicely."
+
+mngmntApp :: Wai.Application
+mngmntApp =
+  Servant.serve
+    (Proxy :: Proxy Mngmnt)
+    mngmnt
+
+data CreateReq = CreateReq
+  { url :: T.Text
+  , alias :: Maybe T.Text
+  } deriving (Generic, Aeson.FromJSON)
+
+type Mngmnt = "shorten" :> ReqBody '[JSON] CreateReq :> Post '[JSON] NoContent
+
+mngmnt :: Server Mngmnt
+mngmnt = undefined
