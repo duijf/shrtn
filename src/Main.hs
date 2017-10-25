@@ -46,12 +46,18 @@ mngmntApp =
     (Proxy :: Proxy Mngmnt)
     mngmnt
 
+type Mngmnt
+  = "shorten"
+    :> ReqBody '[JSON] CreateReq
+    :> Post '[JSON] NoContent
+
 data CreateReq = CreateReq
   { url :: T.Text
   , alias :: Maybe T.Text
   } deriving (Generic, Aeson.FromJSON)
 
-type Mngmnt = "shorten" :> ReqBody '[JSON] CreateReq :> Post '[JSON] NoContent
-
 mngmnt :: Server Mngmnt
-mngmnt = undefined
+mngmnt = createRoute
+
+createRoute :: CreateReq -> Handler NoContent
+createRoute _request = pure NoContent
