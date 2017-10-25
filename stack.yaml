@@ -1,1 +1,4 @@
 resolver: lts-9.10
+extra-deps:
+  - acid-state-0.14.3
+  - safecopy-0.9.3.3
