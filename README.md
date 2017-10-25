@@ -1,4 +1,4 @@
-# shorten
+# shrtn
 
 Currently in development. Alpha quality software.
 
