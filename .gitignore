@@ -1,2 +1,3 @@
 # Haskell build files
 .stack-work/
+shrtn.cabal
