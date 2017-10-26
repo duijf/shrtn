@@ -15,7 +15,7 @@
 module Main where
 
 import qualified Control.Concurrent.Async as Async
-import qualified Control.Monad.State as State
+import qualified Control.Monad.State as MState
 import qualified Control.Monad.Reader as Reader
 import qualified Data.Acid as Acid
 import qualified Data.Acid.Advanced as Acid
@@ -39,6 +39,8 @@ import GHC.Generics (Generic)
 
 import Data.Typeable
 import Servant
+
+import State
 
 main :: IO ()
 main = do
@@ -91,8 +93,8 @@ instance SafeCopy ST where
 
 insertKey :: Key -> Value -> Acid.Update ST ()
 insertKey key value = do
-  ST current <- State.get
-  State.put $ ST $ HM.insert key value current
+  ST current <- MState.get
+  MState.put $ ST $ HM.insert key value current
 
 lookupKey :: Key -> Acid.Query ST (Maybe Value)
 lookupKey key = do
