@@ -14,17 +14,24 @@ newtype Dest
   = Dest (URIRef Absolute)
 
 newSlug :: ByteString -> Either URIParseError Slug
-newSlug path
-  = fmap Slug $ URI.parseRelativeRef URI.strictURIParserOptions path
+newSlug path =
+  fmap Slug $
+    URI.parseRelativeRef
+      URI.strictURIParserOptions
+      path
 
 createSlug :: IO Slug
 createSlug = do
   rng <- Random.getStdGen
+  pure $ createSlug' rng
 
+createSlug' :: Random.StdGen -> Slug
+createSlug' rng =
   let
-    randomChars = Random.randomRs ('A', 'z') rng
-
-  pure $ Slug . (\s -> URI.RelativeRef {URI.rrPath = s}) . ByteString.pack . (take 8) . (filter Char.isAlphaNum) $ randomChars
+    rndChars = Random.randomRs ('A', 'z') rng
+    rndAlphaNum = filter Char.isAlphaNum rndChars
+  in
+    Slug . (\s -> URI.RelativeRef {URI.rrPath = s}) . ByteString.pack . (take 8) $ rndAlphaNum
 
 newDest :: ByteString -> Either URIParseError Dest
 newDest uri
