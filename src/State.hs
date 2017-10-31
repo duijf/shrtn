@@ -31,10 +31,16 @@ createSlug' rng =
     rndChars = Random.randomRs ('A', 'z') rng
     rndAlphaNum = filter Char.isAlphaNum rndChars
   in
-    Slug . (\s -> URI.RelativeRef {URI.rrPath = s}) . ByteString.pack . (take 8) $ rndAlphaNum
+    Slug . relRef . (take 8) $ rndAlphaNum
+
+relRef :: String -> URI.RelativeRef
+relRef path = URI.RelativeRef
+  { URI.rrAuthority = Nothing
+  , URI.rrPath = ByteString.pack path
+  , URI.rrQuery = URI.Query { URI.queryPairs = [] }
+  , URI.rrFragment = Nothing
+  }
 
 newDest :: ByteString -> Either URIParseError Dest
 newDest uri
   = fmap Dest $ URI.parseURI URI.strictURIParserOptions uri
-
-
