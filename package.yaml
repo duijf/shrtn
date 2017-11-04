@@ -11,8 +11,10 @@ dependencies:
   - async < 2.2
   - base >= 4.7 && < 5
   - bytestring < 0.11
+  - containers < 0.6
   - http-types < 0.10
   - mtl < 2.3
+  - lens < 4.16
   - random < 1.2
   - servant-server < 0.12
   - safecopy < 0.15

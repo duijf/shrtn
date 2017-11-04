@@ -1,46 +1,87 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module State where
 
-import Data.ByteString (ByteString)
+import qualified Control.Lens as Lens
+import qualified Control.Monad.State as State
+import qualified Control.Monad.Reader as Reader
+import qualified Data.Acid as Acid
+import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as ByteString
-import URI.ByteString (URIRef, Relative, Absolute, URIParseError)
 import qualified Data.Char as Char
+import           Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import qualified Data.Typeable as Typeable
+import qualified Data.Text as Text
+import           URI.ByteString (URIRef, Relative, Absolute, URIParseError)
 import qualified URI.ByteString as URI
 import qualified System.Random as Random
 
-newtype Slug
-  = Slug (URIRef Relative)
+newtype Alias = Alias ByteString deriving (Eq, Ord)
+newtype Dest = Dest (URIRef Absolute)
 
-newtype Dest
-  = Dest (URIRef Absolute)
+data AliasMap = AliasMap (Map Alias Dest)
+data ShrtnState = ShrtnState
+  { _aliasMap :: !AliasMap
+  }
 
-newSlug :: ByteString -> Either URIParseError Slug
-newSlug path =
-  fmap Slug $
-    URI.parseRelativeRef
-      URI.strictURIParserOptions
-      path
+Lens.makePrisms ''AliasMap
+Lens.makeLenses ''ShrtnState
 
-createSlug :: IO Slug
-createSlug = do
+-- ----------------------------------------------------------------------------
+-- Parsing and creating
+
+data AliasParseErr
+  = CharLimitExceeded
+  | IllegalCharacters
+
+
+-- TODO: Refactor to use a proper parser, this will turn hairy.
+parseAlias :: ByteString -> Either AliasParseErr Alias
+parseAlias path =
+  if ByteString.length path > 32
+  then Left CharLimitExceeded
+  else
+    if not $ ByteString.all Char.isAlphaNum path
+    then Left IllegalCharacters
+    else Right (Alias path)
+
+
+parseDest :: ByteString -> Either URIParseError Dest
+parseDest uri
+  = fmap Dest $ URI.parseURI URI.strictURIParserOptions uri
+
+
+createAlias :: IO Alias
+createAlias = do
   rng <- Random.getStdGen
-  pure $ createSlug' rng
+  pure $ createAlias' rng
 
-createSlug' :: Random.StdGen -> Slug
-createSlug' rng =
+
+createAlias' :: Random.StdGen -> Alias
+createAlias' rng =
   let
     rndChars = Random.randomRs ('A', 'z') rng
     rndAlphaNum = filter Char.isAlphaNum rndChars
   in
-    Slug . relRef . (take 8) $ rndAlphaNum
+    Alias . ByteString.pack . (take 8) $ rndAlphaNum
 
-relRef :: String -> URI.RelativeRef
-relRef path = URI.RelativeRef
-  { URI.rrAuthority = Nothing
-  , URI.rrPath = ByteString.pack path
-  , URI.rrQuery = URI.Query { URI.queryPairs = [] }
-  , URI.rrFragment = Nothing
-  }
+-- ----------------------------------------------------------------------------
+-- State operations
 
-newDest :: ByteString -> Either URIParseError Dest
-newDest uri
-  = fmap Dest $ URI.parseURI URI.strictURIParserOptions uri
+-- TODO: Fail if the alias is already in the state map
+insertAlias :: Alias -> Dest -> Acid.Update ShrtnState ()
+insertAlias alias dest = do
+  state <- State.get
+
+  let
+    path = aliasMap . _AliasMap . (Lens.at alias) . Lens._Just
+    newState = Lens.set path dest state
+
+  State.put newState
+
+
+lookupDest :: Alias -> Acid.Query ShrtnState (Maybe Dest)
+lookupDest alias = do
+  state <- Reader.ask
+  return $ Lens.view (aliasMap . _AliasMap . Lens.at alias) state
