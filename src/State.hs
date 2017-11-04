@@ -1,24 +1,31 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
+
 
 module State where
 
 import qualified Control.Lens as Lens
 import qualified Control.Monad.State as State
 import qualified Control.Monad.Reader as Reader
+import           Data.Acid (AcidState(..))
 import qualified Data.Acid as Acid
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as ByteString
 import qualified Data.Char as Char
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import           Data.SafeCopy (SafeCopy)
+import qualified Data.SafeCopy as SafeCopy
 import qualified Data.Typeable as Typeable
-import qualified Data.Text as Text
-import           URI.ByteString (URIRef, Relative, Absolute, URIParseError)
+import           URI.ByteString (URI, Absolute, URIRef(..), URIParseError)
 import qualified URI.ByteString as URI
 import qualified System.Random as Random
 
 newtype Alias = Alias ByteString deriving (Eq, Ord)
-newtype Dest = Dest (URIRef Absolute)
+newtype Dest = Dest URI
 
 data AliasMap = AliasMap (Map Alias Dest)
 data ShrtnState = ShrtnState
@@ -27,6 +34,33 @@ data ShrtnState = ShrtnState
 
 Lens.makePrisms ''AliasMap
 Lens.makeLenses ''ShrtnState
+
+$(SafeCopy.deriveSafeCopy 0 'SafeCopy.base ''URI.Scheme)
+$(SafeCopy.deriveSafeCopy 0 'SafeCopy.base ''URI.UserInfo)
+$(SafeCopy.deriveSafeCopy 0 'SafeCopy.base ''URI.Host)
+$(SafeCopy.deriveSafeCopy 0 'SafeCopy.base ''URI.Port)
+$(SafeCopy.deriveSafeCopy 0 'SafeCopy.base ''URI.Authority)
+$(SafeCopy.deriveSafeCopy 0 'SafeCopy.base ''URI.Query)
+
+instance SafeCopy (URIRef Absolute) where
+  version = 0
+  getCopy = SafeCopy.contain $ URI <$> SafeCopy.safeGet
+                                   <*> SafeCopy.safeGet
+                                   <*> SafeCopy.safeGet
+                                   <*> SafeCopy.safeGet
+                                   <*> SafeCopy.safeGet
+  putCopy URI{..} = SafeCopy.contain $ do
+    SafeCopy.safePut uriScheme
+    SafeCopy.safePut uriAuthority
+    SafeCopy.safePut uriPath
+    SafeCopy.safePut uriQuery
+    SafeCopy.safePut uriFragment
+
+
+$(SafeCopy.deriveSafeCopy 0 'SafeCopy.base ''Alias)
+$(SafeCopy.deriveSafeCopy 0 'SafeCopy.base ''Dest)
+$(SafeCopy.deriveSafeCopy 0 'SafeCopy.base ''AliasMap)
+$(SafeCopy.deriveSafeCopy 0 'SafeCopy.base ''ShrtnState)
 
 -- ----------------------------------------------------------------------------
 -- Parsing and creating
@@ -66,6 +100,10 @@ createAlias' rng =
   in
     Alias . ByteString.pack . (take 8) $ rndAlphaNum
 
+
+blah :: Alias
+blah = Alias "blah"
+
 -- ----------------------------------------------------------------------------
 -- State operations
 
@@ -85,3 +123,32 @@ lookupDest :: Alias -> Acid.Query ShrtnState (Maybe Dest)
 lookupDest alias = do
   state <- Reader.ask
   return $ Lens.view (aliasMap . _AliasMap . Lens.at alias) state
+
+
+$(Acid.makeAcidic ''ShrtnState ['insertAlias, 'lookupDest])
+
+
+openState :: String -> IO AppST
+openState filePath =
+  let
+    empty = ShrtnState { _aliasMap = AliasMap (Map.empty) }
+  in
+    fmap AppST $ Acid.openLocalStateFrom filePath empty
+
+newtype AppST = AppST (AcidState ShrtnState)
+
+insert alias dest (AppST state) = AppST $ Acid.update state (insertAlias alias dest)
+
+lookup :: Alias -> AppST -> Maybe Dest
+lookup alias (AppST state) = Acid.query state (lookupDest alias)
+
+testDest :: Dest
+testDest =
+  let
+    parsed = URI.parseURI URI.strictURIParserOptions "http://example.com"
+    uri = right parsed
+  in
+    Dest uri
+
+right :: Either a b -> b
+right (Right a) = a
