@@ -4,6 +4,7 @@ module Main where
 
 import qualified Control.Concurrent.Async as Async
 import qualified Control.Concurrent.STM as STM
+import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Char8 as C8ByteString
 import qualified Data.ByteString.Lazy.Char8 as L8ByteString
 import qualified Data.HashMap.Strict as HashMap
@@ -13,13 +14,14 @@ import qualified Network.HTTP.Types as Http
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 
-import Control.Concurrent.STM (STM, TVar)
+import Control.Concurrent.STM (STM, TVar, TChan)
 import Data.HashMap.Strict (HashMap)
 import Data.Text (Text)
 
 main :: IO ()
 main = do
   state <- STM.atomically openState
+  stateChan <- STM.atomically STM.newTChan
   let
     app =
       Warp.runSettings
@@ -30,7 +32,20 @@ main = do
         (settings 7001)
         (mngmntApp state)
 
-  foldr1 Async.race_ [app, admin]
+  foldr1 Async.race_ [app, admin, writer stateChan]
+
+writer :: TChan ShrtnState -> IO ()
+writer stateChan = do
+  state <- STM.atomically $ STM.readTChan stateChan
+  writeState state
+  writer stateChan
+
+writeState :: ShrtnState -> IO ()
+writeState state = do
+  let
+    path = "shrtn.state"
+
+  L8ByteString.writeFile path (Aeson.encode state)
 
 -- Warp
 
