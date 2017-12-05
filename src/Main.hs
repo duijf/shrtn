@@ -46,8 +46,8 @@ shrtnApp _state request respond =
         Http.status200
         []
         "Main app"
-    "POST" -> undefined
-    _ -> respond $ Wai.responseLBS Http.status405 [] ""
+    "POST" -> respond methodUnsupported
+    _ -> respond methodUnsupported
 
 mngmntApp :: TVar ShrtnState -> Wai.Application
 mngmntApp state _request respond = do
@@ -72,3 +72,8 @@ openState =
     withDefault = HashMap.insert "" "https://svsticky.nl" empty
   in
     STM.newTVar withDefault
+
+-- Wai utils
+
+methodUnsupported :: Wai.Response
+methodUnsupported = Wai.responseLBS Http.status405 [] ""
