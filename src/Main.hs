@@ -4,9 +4,11 @@ module Main where
 
 import qualified Control.Concurrent.Async as Async
 import qualified Control.Concurrent.STM as STM
+import qualified Data.ByteString.Char8 as C8ByteString
 import qualified Data.ByteString.Lazy.Char8 as L8ByteString
 import qualified Data.HashMap.Strict as HashMap
-import qualified Data.Text as Text
+import qualified Data.Maybe as Maybe
+import qualified Data.Text.Encoding as Text
 import qualified Network.HTTP.Types as Http
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
@@ -39,13 +41,15 @@ settings port
   $ Warp.defaultSettings
 
 shrtnApp :: TVar ShrtnState -> Wai.Application
-shrtnApp _state request respond =
+shrtnApp state request respond =
   case Wai.requestMethod request of
-    "GET" -> respond $
-      Wai.responseLBS
-        Http.status200
-        []
-        "Main app"
+    "GET" -> do
+      let slug = Maybe.fromMaybe "" $ Maybe.listToMaybe $ Wai.pathInfo request
+      dest <- lookupDest slug state
+      respond $
+        case dest of
+          Just d  -> redirectTo (Text.encodeUtf8 d)
+          Nothing -> notFound
     "POST" -> respond methodUnsupported
     _ -> respond methodUnsupported
 
@@ -65,6 +69,11 @@ type Slug = Text
 type Dest = Text
 type ShrtnState = HashMap Slug Dest
 
+lookupDest :: Slug -> TVar ShrtnState -> IO (Maybe Dest)
+lookupDest slug state = do
+  redirectMap <- STM.atomically (STM.readTVar state)
+  pure $ HashMap.lookup slug redirectMap
+
 openState :: STM (TVar ShrtnState)
 openState =
   let
@@ -75,5 +84,15 @@ openState =
 
 -- Wai utils
 
+notFound :: Wai.Response
+notFound = Wai.responseLBS Http.status404 [] ""
+
 methodUnsupported :: Wai.Response
 methodUnsupported = Wai.responseLBS Http.status405 [] ""
+
+redirectTo :: C8ByteString.ByteString -> Wai.Response
+redirectTo dest =
+  Wai.responseLBS
+    Http.status302
+    [(Http.hLocation, dest)]
+    ""
