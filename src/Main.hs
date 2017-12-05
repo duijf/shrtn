@@ -64,13 +64,13 @@ shrtnApp state request respond =
 
 mngmntApp :: TVar ShrtnState -> Wai.Application
 mngmntApp state _request respond = do
-  statePrint <- fmap show $ STM.atomically (STM.readTVar state)
+  statePrint <- fmap Aeson.encode $ STM.atomically (STM.readTVar state)
 
   respond $
     Wai.responseLBS
       Http.status200
-      []
-      (L8ByteString.pack statePrint)
+      [(Http.hContentType, "application/json")]
+      statePrint
 
 -- State
 
@@ -87,7 +87,7 @@ statePath :: FilePath
 statePath = "shrtn.state"
 
 defaultState :: ShrtnState
-defaultState = HashMap.empty
+defaultState = HashMap.insert "" "https://svsticky.nl" HashMap.empty
 
 openState :: IO (TVar ShrtnState)
 openState = do
