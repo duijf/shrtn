@@ -4,6 +4,7 @@ module Main where
 
 import qualified Control.Concurrent.Async as Async
 import qualified Control.Concurrent.STM as STM
+import qualified Data.ByteString.Lazy.Char8 as L8ByteString
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Text as Text
 import qualified Network.HTTP.Types as Http
@@ -17,7 +18,6 @@ import Data.Text (Text)
 main :: IO ()
 main = do
   state <- STM.atomically openState
-
   let
     app =
       Warp.runSettings
@@ -39,20 +39,25 @@ settings port
   $ Warp.defaultSettings
 
 shrtnApp :: TVar ShrtnState -> Wai.Application
-shrtnApp _state _request respond =
-  respond $
-    Wai.responseLBS
-      Http.status200
-      []
-      "Main app"
+shrtnApp _state request respond =
+  case Wai.requestMethod request of
+    "GET" -> respond $
+      Wai.responseLBS
+        Http.status200
+        []
+        "Main app"
+    "POST" -> undefined
+    _ -> respond $ Wai.responseLBS Http.status405 [] ""
 
 mngmntApp :: TVar ShrtnState -> Wai.Application
-mngmntApp _state _request respond =
+mngmntApp state _request respond = do
+  statePrint <- fmap show $ STM.atomically (STM.readTVar state)
+
   respond $
     Wai.responseLBS
       Http.status200
       []
-      "Management app"
+      (L8ByteString.pack statePrint)
 
 -- State
 
@@ -63,7 +68,7 @@ type ShrtnState = HashMap Slug Dest
 openState :: STM (TVar ShrtnState)
 openState =
   let
-    path = "shrtn.state"
     empty = HashMap.empty :: ShrtnState
+    withDefault = HashMap.insert "" "https://svsticky.nl" empty
   in
-    STM.newTVar empty
+    STM.newTVar withDefault
