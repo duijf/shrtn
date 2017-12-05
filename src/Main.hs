@@ -14,6 +14,7 @@ import qualified Network.HTTP.Types as Http
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 import qualified System.Directory as Directory
+import qualified Web.FormUrlEncoded as Form
 
 import Control.Concurrent.STM (TVar, TChan)
 import Data.HashMap.Strict (HashMap)
@@ -59,7 +60,11 @@ shrtnApp state request respond =
         case dest of
           Just d  -> redirectTo (Text.encodeUtf8 d)
           Nothing -> notFound
-    "POST" -> respond methodUnsupported
+    "POST" -> do
+      body <- Wai.lazyRequestBody request
+      case Form.urlDecodeForm body of
+        Left err -> undefined
+        Right form -> undefined
     _ -> respond methodUnsupported
 
 mngmntApp :: TVar ShrtnState -> Wai.Application
