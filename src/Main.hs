@@ -13,14 +13,15 @@ import qualified Data.Text.Encoding as Text
 import qualified Network.HTTP.Types as Http
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
+import qualified System.Directory as Directory
 
-import Control.Concurrent.STM (STM, TVar, TChan)
+import Control.Concurrent.STM (TVar, TChan)
 import Data.HashMap.Strict (HashMap)
 import Data.Text (Text)
 
 main :: IO ()
 main = do
-  state <- STM.atomically openState
+  state <- openState
   stateChan <- STM.atomically STM.newTChan
   let
     app =
@@ -39,13 +40,6 @@ writer stateChan = do
   state <- STM.atomically $ STM.readTChan stateChan
   writeState state
   writer stateChan
-
-writeState :: ShrtnState -> IO ()
-writeState state = do
-  let
-    path = "shrtn.state"
-
-  L8ByteString.writeFile path (Aeson.encode state)
 
 -- Warp
 
@@ -89,13 +83,26 @@ lookupDest slug state = do
   redirectMap <- STM.atomically (STM.readTVar state)
   pure $ HashMap.lookup slug redirectMap
 
-openState :: STM (TVar ShrtnState)
-openState =
-  let
-    empty = HashMap.empty :: ShrtnState
-    withDefault = HashMap.insert "" "https://svsticky.nl" empty
-  in
-    STM.newTVar withDefault
+statePath :: FilePath
+statePath = "shrtn.state"
+
+defaultState :: ShrtnState
+defaultState = HashMap.empty
+
+openState :: IO (TVar ShrtnState)
+openState = do
+  exists <- Directory.doesFileExist statePath
+  if exists
+    then do
+      contents <- L8ByteString.readFile statePath
+      case Aeson.decode contents of
+        Just state -> STM.atomically $ STM.newTVar state
+        Nothing -> STM.atomically $ STM.newTVar defaultState
+    else STM.atomically $ STM.newTVar $ defaultState
+
+writeState :: ShrtnState -> IO ()
+writeState state = do
+  L8ByteString.writeFile statePath (Aeson.encode state)
 
 -- Wai utils
 
