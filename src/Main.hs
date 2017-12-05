@@ -3,18 +3,20 @@
 module Main where
 
 import qualified Control.Concurrent.Async as Async
+import qualified Control.Concurrent.STM as STM
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Text as Text
 import qualified Network.HTTP.Types as Http
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 
+import Control.Concurrent.STM (STM, TVar)
 import Data.HashMap.Strict (HashMap)
 import Data.Text (Text)
 
 main :: IO ()
 main = do
-  state <- openState
+  state <- STM.atomically openState
 
   let
     app =
@@ -36,7 +38,7 @@ settings port
   $ Warp.setHost "*"
   $ Warp.defaultSettings
 
-shrtnApp :: ShrtnState -> Wai.Application
+shrtnApp :: TVar ShrtnState -> Wai.Application
 shrtnApp _state _request respond =
   respond $
     Wai.responseLBS
@@ -44,7 +46,7 @@ shrtnApp _state _request respond =
       []
       "Main app"
 
-mngmntApp :: ShrtnState -> Wai.Application
+mngmntApp :: TVar ShrtnState -> Wai.Application
 mngmntApp _state _request respond =
   respond $
     Wai.responseLBS
@@ -58,10 +60,10 @@ type Slug = Text
 type Dest = Text
 type ShrtnState = HashMap Slug Dest
 
-openState :: IO ShrtnState
+openState :: STM (TVar ShrtnState)
 openState =
   let
     path = "shrtn.state"
     empty = HashMap.empty :: ShrtnState
   in
-    pure empty
+    STM.newTVar empty
