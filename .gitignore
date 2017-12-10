@@ -4,5 +4,5 @@
 # Generated from package.yml by hpack
 shrtn.cabal
 
-# Default acid-state directory
-shrtn.state/
+# Default state file
+shrtn.state
