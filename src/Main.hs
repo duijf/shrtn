@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module Main where
 
@@ -7,6 +8,7 @@ import qualified Control.Concurrent.STM as STM
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Char8 as C8ByteString
 import qualified Data.ByteString.Lazy.Char8 as L8ByteString
+import qualified Data.Char as Char
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Maybe as Maybe
 import qualified Data.Text.Encoding as Text
@@ -16,9 +18,13 @@ import qualified Network.Wai.Handler.Warp as Warp
 import qualified System.Directory as Directory
 import qualified Web.FormUrlEncoded as Form
 
-import Control.Concurrent.STM (TVar, TChan)
+import Control.Concurrent.STM (STM, TVar, TChan)
 import Data.HashMap.Strict (HashMap)
 import Data.Text (Text)
+import GHC.Generics (Generic)
+import Web.FormUrlEncoded (FromForm, FormOptions(..))
+
+import Debug.Trace
 
 main :: IO ()
 main = do
@@ -52,19 +58,26 @@ settings port
 
 shrtnApp :: TVar ShrtnState -> Wai.Application
 shrtnApp state request respond =
-  case Wai.requestMethod request of
+  case Wai.requestMethod (traceShowId request) of
     "GET" -> do
       let slug = Maybe.fromMaybe "" $ Maybe.listToMaybe $ Wai.pathInfo request
-      dest <- lookupDest slug state
+      dest <- STM.atomically $ lookupDest slug state
       respond $
         case dest of
           Just d  -> redirectTo (Text.encodeUtf8 d)
           Nothing -> notFound
     "POST" -> do
       body <- Wai.lazyRequestBody request
-      case Form.urlDecodeForm body of
-        Left err -> undefined
-        Right form -> undefined
+      case Form.urlDecodeAsForm body of
+        Left err -> do
+          print err
+          print body
+          respond badRequest
+        Right redirect -> do
+          insertRes <- STM.atomically $ insertIfNotExists state (traceShowId redirect)
+          case insertRes of
+            Success -> respond success
+            AlreadyExists -> respond conflict
     _ -> respond methodUnsupported
 
 mngmntApp :: TVar ShrtnState -> Wai.Application
@@ -77,16 +90,44 @@ mngmntApp state _request respond = do
       [(Http.hContentType, "application/json")]
       statePrint
 
+data Redirect =
+  Redirect
+  { _redirectSlug :: Text
+  , _redirectDest :: Text
+  } deriving (Generic, Show)
+
+dropPrefixOptions :: String -> FormOptions
+dropPrefixOptions prefix = FormOptions
+  { Form.fieldLabelModifier = map Char.toLower . drop (length prefix) }
+
+instance FromForm Redirect where
+  fromForm = Form.genericFromForm (dropPrefixOptions "_redirect")
+
 -- State
 
 type Slug = Text
 type Dest = Text
 type ShrtnState = HashMap Slug Dest
 
-lookupDest :: Slug -> TVar ShrtnState -> IO (Maybe Dest)
+lookupDest :: Slug -> TVar ShrtnState -> STM (Maybe Dest)
 lookupDest slug state = do
-  redirectMap <- STM.atomically (STM.readTVar state)
+  redirectMap <- STM.readTVar state
   pure $ HashMap.lookup slug redirectMap
+
+data InsertResult = AlreadyExists | Success
+
+insertIfNotExists :: TVar ShrtnState -> Redirect -> STM InsertResult
+insertIfNotExists state redirect = do
+  let
+    slug = _redirectSlug redirect
+    dest = _redirectDest redirect
+
+  redirectMap <- STM.readTVar state
+  if HashMap.member slug redirectMap
+    then pure AlreadyExists
+    else do
+      STM.writeTVar state (HashMap.insert slug dest redirectMap)
+      pure Success
 
 statePath :: FilePath
 statePath = "shrtn.state"
@@ -111,11 +152,20 @@ writeState state = do
 
 -- Wai utils
 
+success :: Wai.Response
+success = Wai.responseLBS Http.status200 [] ""
+
+badRequest :: Wai.Response
+badRequest = Wai.responseLBS Http.status400 [] ""
+
 notFound :: Wai.Response
 notFound = Wai.responseLBS Http.status404 [] ""
 
 methodUnsupported :: Wai.Response
 methodUnsupported = Wai.responseLBS Http.status405 [] ""
+
+conflict :: Wai.Response
+conflict = Wai.responseLBS Http.status409 [] ""
 
 redirectTo :: C8ByteString.ByteString -> Wai.Response
 redirectTo dest =
