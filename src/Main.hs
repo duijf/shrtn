@@ -24,8 +24,6 @@ import Data.Text (Text)
 import GHC.Generics (Generic)
 import Web.FormUrlEncoded (FromForm, FormOptions(..))
 
-import Debug.Trace
-
 main :: IO ()
 main = do
   state <- openState
@@ -38,7 +36,7 @@ main = do
     admin =
       Warp.runSettings
         (settings 7001)
-        (mngmntApp state)
+        (mngmntApp state stateChan)
 
   foldr1 Async.race_ [app, admin, writer stateChan]
 
@@ -68,8 +66,8 @@ shrtnApp state request respond =
           Nothing -> notFound
     _ -> respond methodUnsupported
 
-mngmntApp :: TVar ShrtnState -> Wai.Application
-mngmntApp state request respond = do
+mngmntApp :: TVar ShrtnState -> TChan ShrtnState-> Wai.Application
+mngmntApp state writeChan request respond = do
   case Wai.pathInfo request of
     [] -> case Wai.requestMethod request of
       "GET" -> do
@@ -91,7 +89,7 @@ mngmntApp state request respond = do
             print body
             respond badRequest
           Right redirect -> do
-            insertRes <- STM.atomically $ insertIfNotExists state redirect
+            insertRes <- STM.atomically $ insertIfNotExists state writeChan redirect
             case insertRes of
               Success -> respond success
               AlreadyExists -> respond conflict
@@ -124,8 +122,8 @@ lookupDest slug state = do
 
 data InsertResult = AlreadyExists | Success
 
-insertIfNotExists :: TVar ShrtnState -> Redirect -> STM InsertResult
-insertIfNotExists state redirect = do
+insertIfNotExists :: TVar ShrtnState -> TChan ShrtnState-> Redirect -> STM InsertResult
+insertIfNotExists state chan redirect = do
   let
     slug = _redirectSlug redirect
     dest = _redirectDest redirect
@@ -134,7 +132,9 @@ insertIfNotExists state redirect = do
   if HashMap.member slug redirectMap
     then pure AlreadyExists
     else do
-      STM.writeTVar state (HashMap.insert slug dest redirectMap)
+      let newState = HashMap.insert slug dest redirectMap
+      STM.writeTVar state newState
+      STM.writeTChan chan newState
       pure Success
 
 statePath :: FilePath
