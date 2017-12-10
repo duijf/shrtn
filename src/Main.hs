@@ -58,7 +58,7 @@ settings port
 
 shrtnApp :: TVar ShrtnState -> Wai.Application
 shrtnApp state request respond =
-  case Wai.requestMethod (traceShowId request) of
+  case Wai.requestMethod request of
     "GET" -> do
       let slug = Maybe.fromMaybe "" $ Maybe.listToMaybe $ Wai.pathInfo request
       dest <- STM.atomically $ lookupDest slug state
@@ -66,29 +66,37 @@ shrtnApp state request respond =
         case dest of
           Just d  -> redirectTo (Text.encodeUtf8 d)
           Nothing -> notFound
-    "POST" -> do
-      body <- Wai.lazyRequestBody request
-      case Form.urlDecodeAsForm body of
-        Left err -> do
-          print err
-          print body
-          respond badRequest
-        Right redirect -> do
-          insertRes <- STM.atomically $ insertIfNotExists state (traceShowId redirect)
-          case insertRes of
-            Success -> respond success
-            AlreadyExists -> respond conflict
     _ -> respond methodUnsupported
 
 mngmntApp :: TVar ShrtnState -> Wai.Application
-mngmntApp state _request respond = do
-  statePrint <- fmap Aeson.encode $ STM.atomically (STM.readTVar state)
-
-  respond $
-    Wai.responseLBS
-      Http.status200
-      [(Http.hContentType, "application/json")]
-      statePrint
+mngmntApp state request respond = do
+  case Wai.pathInfo request of
+    [] -> case Wai.requestMethod request of
+      "GET" -> do
+        contents <- L8ByteString.readFile "index.html"
+        respond $ Wai.responseLBS Http.status200 [] contents
+      _ -> respond $ methodUnsupported
+    ["aliases"] -> case Wai.requestMethod request of
+      "GET" -> do
+        statePrint <- fmap Aeson.encode $ STM.atomically (STM.readTVar state)
+        respond $
+          Wai.responseLBS
+            Http.status200
+            [(Http.hContentType, "application/json")]
+            statePrint
+      "POST" -> do
+        body <- Wai.lazyRequestBody request
+        case Form.urlDecodeAsForm body of
+          Left _err -> do
+            print body
+            respond badRequest
+          Right redirect -> do
+            insertRes <- STM.atomically $ insertIfNotExists state redirect
+            case insertRes of
+              Success -> respond success
+              AlreadyExists -> respond conflict
+      _ -> respond methodUnsupported
+    _ -> respond notFound
 
 data Redirect =
   Redirect
