@@ -17,6 +17,7 @@ import qualified Data.Text.Encoding as Text
 import qualified Network.HTTP.Types as Http
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
+import qualified Network.Wai.Middleware.HttpAuth as Auth
 import qualified System.Directory as Directory
 import qualified Web.FormUrlEncoded as Form
 
@@ -42,7 +43,7 @@ main = do
     admin =
       Warp.runSettings
         (settings managementPort)
-        (mngmntApp state stateChan)
+        (basicAuth $ mngmntApp state stateChan)
 
   putStrLn $ ":: Binding to ports " ++ show redirectPort ++
              " and " ++ show managementPort
@@ -105,6 +106,12 @@ mngmntApp state writeChan request respond = do
               AlreadyExists -> respond conflict
       _ -> respond methodUnsupported
     _ -> respond notFound
+
+basicAuth :: Wai.Middleware
+basicAuth =
+  let checkCreds u p = return $ u == "admin" && p == "admin"
+      realm = "shrtn administration"
+  in Auth.basicAuth checkCreds realm
 
 data Redirect =
   Redirect
