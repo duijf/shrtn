@@ -105,6 +105,11 @@ mngmntApp state writeChan request respond = do
                 respond success
               AlreadyExists -> respond conflict
       _ -> respond methodUnsupported
+    ["style.css"] -> case Wai.requestMethod request of
+      "GET" -> do
+        contents <- L8ByteString.readFile "style.css"
+        respond $ Wai.responseLBS Http.status200 [] contents
+      _ -> respond methodUnsupported
     _ -> respond notFound
 
 basicAuth :: Wai.Middleware

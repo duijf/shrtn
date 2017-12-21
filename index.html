@@ -3,12 +3,46 @@
 <head>
   <meta charset="UTF-8">
   <title>shrtn</title>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <form action="/aliases" method="post">
-    <input type="text" name="dest" id="dest" placeholder="URL to shrtn"/><br>
-    <input type="text" name="slug" id="slug" placeholder="Alias to use" /><br>
-    <button type="submit">Shrtn URL</button>
+  <h1>Shrtn an URL</h1>
+
+  <form action="/aliases" method="post" id="form">
+    <input type="text" name="dest" id="dest" placeholder="URL to shrtn" required /><br />
+    <button type="submit" id="submit">Shrtn URL</button><br />
+    <small id="toggle-alias">Want a custom alias?</small>
   </form>
+
+  <script charset="utf-8">
+    window.onload = function() {
+      // Register a callback so we can create a new input field when the user
+      // clicks on the custom alias link.
+      customInputHidden = true;
+      toggleAlias = document.querySelector("#toggle-alias");
+      form = document.querySelector("#form");
+      submit = document.querySelector("#submit");
+      toggleAlias.addEventListener('click', function() {
+        if (customInputHidden) {
+          customInput = document.createElement("input")
+          customInput.setAttribute("type", "text");
+          customInput.setAttribute("required", "required");
+          customInput.setAttribute("name", "slug");
+          customInput.setAttribute("id", "custom");
+          customInput.setAttribute("placeholder", "Custom alias");
+          form.insertBefore(customInput, submit);
+          customInputHidden = false;
+          toggleAlias.innerHTML = "Don't want a custom alias?";
+        }
+        else {
+          customInput = document.querySelector("#custom");
+          form.removeChild(customInput);
+          customInputHidden = true;
+          toggleAlias.innerHTML = "Want a custom alias?";
+        }
+      });
+    };
+
+  </script>
 </body>
 </html>
