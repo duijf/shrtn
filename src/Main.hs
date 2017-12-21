@@ -1,5 +1,6 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Main where
 
@@ -11,6 +12,7 @@ import qualified Data.ByteString.Lazy.Char8 as L8ByteString
 import qualified Data.Char as Char
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Maybe as Maybe
+import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import qualified Network.HTTP.Types as Http
 import qualified Network.Wai as Wai
@@ -24,6 +26,10 @@ import Data.Text (Text)
 import GHC.Generics (Generic)
 import Web.FormUrlEncoded (FromForm, FormOptions(..))
 
+redirectPort, managementPort :: Int
+redirectPort = 7000
+managementPort = 7001
+
 main :: IO ()
 main = do
   state <- openState
@@ -31,13 +37,15 @@ main = do
   let
     app =
       Warp.runSettings
-        (settings 7000)
+        (settings redirectPort)
         (shrtnApp state)
     admin =
       Warp.runSettings
-        (settings 7001)
+        (settings managementPort)
         (mngmntApp state stateChan)
 
+  putStrLn $ ":: Binding to ports " ++ show redirectPort ++
+             " and " ++ show managementPort
   foldr1 Async.race_ [app, admin, writer stateChan]
 
 writer :: TChan ShrtnState -> IO ()
@@ -91,7 +99,9 @@ mngmntApp state writeChan request respond = do
           Right redirect -> do
             insertRes <- STM.atomically $ insertIfNotExists state writeChan redirect
             case insertRes of
-              Success -> respond success
+              Success -> do
+                putStrLn $ ":: Created new redirect " ++ show redirect
+                respond success
               AlreadyExists -> respond conflict
       _ -> respond methodUnsupported
     _ -> respond notFound
@@ -100,7 +110,10 @@ data Redirect =
   Redirect
   { _redirectSlug :: Text
   , _redirectDest :: Text
-  } deriving (Generic, Show)
+  } deriving (Generic)
+
+instance Show Redirect where
+  show Redirect{..} = concatMap Text.unpack ["/",  _redirectSlug, " -> ", _redirectDest]
 
 dropPrefixOptions :: String -> FormOptions
 dropPrefixOptions prefix = FormOptions
@@ -148,11 +161,14 @@ openState = do
   exists <- Directory.doesFileExist statePath
   if exists
     then do
+      putStrLn $ ":: Found existing state file in " ++ statePath
       contents <- L8ByteString.readFile statePath
       case Aeson.decode contents of
         Just state -> STM.atomically $ STM.newTVar state
         Nothing -> STM.atomically $ STM.newTVar defaultState
-    else STM.atomically $ STM.newTVar $ defaultState
+    else do
+      putStrLn $ ":: Opening new state file in " ++ statePath
+      STM.atomically $ STM.newTVar $ defaultState
 
 writeState :: ShrtnState -> IO ()
 writeState state = do
