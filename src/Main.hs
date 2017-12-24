@@ -9,7 +9,7 @@ import qualified Control.Concurrent.STM as STM
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Char8 as C8ByteString
 import qualified Data.ByteString.Lazy.Char8 as L8ByteString
-import qualified Data.Char as Char
+import qualified Data.Either as Either
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Maybe as Maybe
 import qualified Data.Text as Text
@@ -19,13 +19,13 @@ import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.Wai.Middleware.HttpAuth as Auth
 import qualified System.Directory as Directory
+import qualified System.Random as Random
 import qualified Web.FormUrlEncoded as Form
 
 import Control.Concurrent.STM (STM, TVar, TChan)
 import Data.HashMap.Strict (HashMap)
 import Data.Text (Text)
-import GHC.Generics (Generic)
-import Web.FormUrlEncoded (FromForm, FormOptions(..))
+import Web.FormUrlEncoded (FromForm)
 
 redirectPort, managementPort :: Int
 redirectPort = 7000
@@ -98,7 +98,7 @@ mngmntApp state writeChan request respond = do
             print body
             respond badRequest
           Right redirect -> do
-            insertRes <- STM.atomically $ insertIfNotExists state writeChan redirect
+            insertRes <- insertRedirect state writeChan redirect
             case insertRes of
               Success -> do
                 putStrLn $ ":: Created new redirect " ++ show redirect
@@ -112,27 +112,51 @@ mngmntApp state writeChan request respond = do
       _ -> respond methodUnsupported
     _ -> respond notFound
 
+insertRedirect :: TVar ShrtnState -> TChan ShrtnState -> RedirectReq -> IO InsertResult
+insertRedirect state writeChan CustomRedirect{..} = do
+  STM.atomically $ insertIfNotExists state writeChan _redirectSlug _redirectDest
+insertRedirect state writeChan RandomRedirect{..} = do
+  stdGen <- Random.getStdGen
+  let slug = mkRandomSlug stdGen
+  STM.atomically $ insertIfNotExists state writeChan slug _redirectDest
+
+mkRandomSlug :: Random.StdGen -> Slug
+mkRandomSlug gen =
+  Text.pack $ take 10 $ Random.randomRs ('a', 'z') gen
+
 basicAuth :: Wai.Middleware
 basicAuth =
   let checkCreds u p = return $ u == "admin" && p == "admin"
       realm = "shrtn administration"
   in Auth.basicAuth checkCreds realm
 
-data Redirect =
-  Redirect
-  { _redirectSlug :: Text
-  , _redirectDest :: Text
-  } deriving (Generic)
+data RedirectReq
+  = CustomRedirect
+    { _redirectSlug :: Text
+    , _redirectDest :: Text
+    }
+  | RandomRedirect
+    { _redirectDest :: Text
+    }
 
-instance Show Redirect where
-  show Redirect{..} = concatMap Text.unpack ["/",  _redirectSlug, " -> ", _redirectDest]
+instance Show RedirectReq where
+  show CustomRedirect{..} =
+    concatMap Text.unpack ["/",  _redirectSlug, " -> ", _redirectDest]
+  show RandomRedirect{..} =
+    concatMap Text.unpack ["/random -> ", _redirectDest]
 
-dropPrefixOptions :: String -> FormOptions
-dropPrefixOptions prefix = FormOptions
-  { Form.fieldLabelModifier = map Char.toLower . drop (length prefix) }
-
-instance FromForm Redirect where
-  fromForm = Form.genericFromForm (dropPrefixOptions "_redirect")
+instance FromForm RedirectReq where
+  fromForm f
+    | Either.isLeft custom = random
+    | otherwise     = custom
+    where
+      custom =
+        CustomRedirect
+        <$> Form.parseUnique "slug" f
+        <*> Form.parseUnique "dest" f
+      random =
+        RandomRedirect
+        <$> Form.parseUnique "dest" f
 
 -- State
 
@@ -147,12 +171,8 @@ lookupDest slug state = do
 
 data InsertResult = AlreadyExists | Success
 
-insertIfNotExists :: TVar ShrtnState -> TChan ShrtnState-> Redirect -> STM InsertResult
-insertIfNotExists state chan redirect = do
-  let
-    slug = _redirectSlug redirect
-    dest = _redirectDest redirect
-
+insertIfNotExists :: TVar ShrtnState -> TChan ShrtnState -> Slug -> Dest -> STM InsertResult
+insertIfNotExists state chan slug dest = do
   redirectMap <- STM.readTVar state
   if HashMap.member slug redirectMap
     then pure AlreadyExists
