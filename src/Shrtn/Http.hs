@@ -26,6 +26,7 @@ import           Web.FormUrlEncoded (FromForm)
 import qualified Web.FormUrlEncoded as Form
 
 import qualified Shrtn.State as State
+import qualified Shrtn.Views as Views
 
 data Config = Config
   { cRedirectPort :: Int
@@ -84,8 +85,7 @@ mngmtApp state request respond = do
   case Wai.pathInfo request of
     [] -> case Wai.requestMethod request of
       "GET" -> do
-        contents <- BSLC8.readFile "index.html"
-        respond $ Wai.responseLBS HttpTypes.status200 [] contents
+        respond $ Wai.responseLBS HttpTypes.status200 [] Views.mngmtView
       _ -> respond $ methodUnsupported
     ["aliases"] -> case Wai.requestMethod request of
       "GET" -> do
