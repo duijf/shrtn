@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Shrtn.Http
   ( new
@@ -9,7 +10,7 @@ module Shrtn.Http
   ) where
 
 import qualified Control.Concurrent.Async as Async
-import qualified Data.Aeson as Aeson
+import           Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString.Lazy.Char8 as BSLC8
 import           Data.Default (Default, def)
 import qualified Data.Either as Either
@@ -26,6 +27,9 @@ import qualified Web.FormUrlEncoded as Form
 
 import qualified Shrtn.State as State
 import qualified Shrtn.Views as Views
+import           Shrtn.Api (ShrtnApi, shrtnApiProxy, Server, NewRedirect(..), NoContent(..), (:<|>)(..))
+
+import Servant (serve)
 
 data Config = Config
   { cRedirectPort :: Int
@@ -79,6 +83,22 @@ shrtnApp state request respond =
           Nothing -> Wai.notFound
     _ -> respond Wai.methodUnsupported
 
+mngmtApi :: State.Handle -> Server ShrtnApi
+mngmtApi handle = getAliases :<|> postAliases
+  where
+    getAliases = liftIO $ State.atomically $ State.listAll handle
+    postAliases NewRedirect{..} =
+      liftIO $ State.atomically $
+        case slug of
+          Just s -> do
+            res <- State.insertIfNotExists handle s dest
+            case res of
+              State.InsertSuccess -> pure NoContent
+              State.SlugAlreadyExists -> pure NoContent
+          Nothing -> do
+            _ <- State.insertRandom handle dest
+            pure NoContent
+
 mngmtApp :: State.Handle -> Wai.Application
 mngmtApp state request respond = do
   case Wai.pathInfo request of
@@ -86,32 +106,7 @@ mngmtApp state request respond = do
       "GET" -> do
         respond $ Wai.responseLBS HttpTypes.status200 [] Views.mngmtView
       _ -> respond $ Wai.methodUnsupported
-    ["aliases"] -> case Wai.requestMethod request of
-      "GET" -> do
-        allRedirects <- State.atomically $ State.listAll state
-        respond $
-          Wai.responseLBS
-            HttpTypes.status200
-            [(HttpTypes.hContentType, "application/json")]
-            (Aeson.encode allRedirects)
-      "POST" -> do
-        body <- Wai.lazyRequestBody request
-        case Form.urlDecodeAsForm body of
-          Left _err -> do
-            print body
-            respond Wai.badRequest
-          Right r@RandomRedirect{..} -> do
-            State.atomically $ State.insertRandom state _redirectDest
-            putStrLn $ ":: Created new redirect " ++ show r
-            respond Wai.success
-          Right r@CustomRedirect{..} -> do
-            insertRes <- State.atomically $ State.insertIfNotExists state _redirectSlug _redirectDest
-            case insertRes of
-              State.InsertSuccess -> do
-                putStrLn $ ":: Created new redirect " ++ show r
-                respond Wai.success
-              State.SlugAlreadyExists -> respond Wai.conflict
-      _ -> respond Wai.methodUnsupported
+    ["aliases"] -> (serve shrtnApiProxy (mngmtApi state)) request respond
     ["style.css"] -> case Wai.requestMethod request of
       "GET" -> do
         contents <- BSLC8.readFile "style.css"
@@ -125,31 +120,3 @@ basicAuth Config{..}
   | otherwise = let checkCreds u p = return $ u == "admin" && p == "admin"
                     realm = "shrtn administration"
                 in Auth.basicAuth checkCreds realm
-
-data RedirectReq
-  = CustomRedirect
-    { _redirectSlug :: Text
-    , _redirectDest :: Text
-    }
-  | RandomRedirect
-    { _redirectDest :: Text
-    }
-
-instance Show RedirectReq where
-  show CustomRedirect{..} =
-    concatMap Text.unpack ["/",  _redirectSlug, " -> ", _redirectDest]
-  show RandomRedirect{..} =
-    concatMap Text.unpack ["/random -> ", _redirectDest]
-
-instance FromForm RedirectReq where
-  fromForm f
-    | Either.isLeft custom = random
-    | otherwise     = custom
-    where
-      custom =
-        CustomRedirect
-        <$> Form.parseUnique "slug" f
-        <*> Form.parseUnique "dest" f
-      random =
-        RandomRedirect
-        <$> Form.parseUnique "dest" f

@@ -11,6 +11,9 @@ module Shrtn.State
   , lookupDest
   , listAll
   , STM.atomically
+  , State
+  , Slug
+  , Dest
   ) where
 
 import           Control.Concurrent.STM (STM, TVar, TChan)
@@ -39,7 +42,7 @@ instance Default Config where
 data Handle = Handle
   { hConfig :: Config
   , hState :: TVar State
-  , hRng :: Random.StdGen
+  , hRng :: TVar Random.StdGen
   , hStateChan :: TChan State
   }
 
@@ -47,7 +50,7 @@ new :: Config -> IO Handle
 new config = do
   state <- openState $ cStateFile config
   stateChan <- STM.atomically STM.newTChan
-  rng <- Random.getStdGen
+  rng <- (Random.getStdGen >>= \r -> STM.atomically $ STM.newTVar r)
   return $ Handle
     { hConfig = config
     , hState = state
@@ -83,17 +86,30 @@ openDefault statePath = do
   putStrLn $ ":: Opening new state file in " ++ statePath
   STM.atomically $ STM.newTVar $ HashMap.empty
 
-insertRandom :: Handle -> Dest -> STM ()
+data InsertResult = SlugAlreadyExists | InsertSuccess
+
+insertRandom :: Handle -> Dest -> STM InsertResult
 insertRandom h@Handle{..} dest = do
-  insertResult <- insertIfNotExists h (randomSlug hRng) dest
+  actualRng <- STM.readTVar hRng
+  let (slug, rng') = randomSlug actualRng
+  insertResult <- insertIfNotExists h slug dest
+  STM.writeTVar hRng rng'
   case insertResult of
-    InsertSuccess -> pure ()
+    InsertSuccess -> pure InsertSuccess
     SlugAlreadyExists -> insertRandom h dest
 
-randomSlug :: Random.StdGen -> Slug
-randomSlug rng = Text.pack $ take 10 $ Random.randomRs ('a', 'z') rng
-
-data InsertResult = SlugAlreadyExists | InsertSuccess
+-- TODO: Crappy roll-your-own shit, refactor into state monad?
+randomSlug :: Random.StdGen -> (Slug, Random.StdGen)
+randomSlug rng = undefined
+  where
+    f :: Random.StdGen -> Int -> ([Char], Random.StdGen)
+    f r 0 = ([], r)
+    f r n =
+      let
+        (a, r') = Random.randomR ('a', 'z') rng
+        (as, r'') = f r' (n-1)
+      in
+        (a:as, r'')
 
 insertIfNotExists :: Handle -> Slug -> Dest -> STM InsertResult
 insertIfNotExists Handle{..} slug dest = do
