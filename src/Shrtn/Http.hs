@@ -10,7 +10,6 @@ module Shrtn.Http
 
 import qualified Control.Concurrent.Async as Async
 import qualified Data.Aeson as Aeson
-import qualified Data.ByteString.Char8 as BSC8
 import qualified Data.ByteString.Lazy.Char8 as BSLC8
 import           Data.Default (Default, def)
 import qualified Data.Either as Either
@@ -19,7 +18,7 @@ import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import qualified Network.HTTP.Types as HttpTypes
-import qualified Network.Wai as Wai
+import qualified Network.Wai.Extended as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.Wai.Middleware.HttpAuth as Auth
 import           Web.FormUrlEncoded (FromForm)
@@ -76,9 +75,9 @@ shrtnApp state request respond =
       dest <- State.atomically $ State.lookupDest state slug
       respond $
         case dest of
-          Just d  -> redirectTo (Text.encodeUtf8 d)
-          Nothing -> notFound
-    _ -> respond methodUnsupported
+          Just d  -> Wai.redirectTo (Text.encodeUtf8 d)
+          Nothing -> Wai.notFound
+    _ -> respond Wai.methodUnsupported
 
 mngmtApp :: State.Handle -> Wai.Application
 mngmtApp state request respond = do
@@ -86,7 +85,7 @@ mngmtApp state request respond = do
     [] -> case Wai.requestMethod request of
       "GET" -> do
         respond $ Wai.responseLBS HttpTypes.status200 [] Views.mngmtView
-      _ -> respond $ methodUnsupported
+      _ -> respond $ Wai.methodUnsupported
     ["aliases"] -> case Wai.requestMethod request of
       "GET" -> do
         allRedirects <- State.atomically $ State.listAll state
@@ -100,25 +99,25 @@ mngmtApp state request respond = do
         case Form.urlDecodeAsForm body of
           Left _err -> do
             print body
-            respond badRequest
+            respond Wai.badRequest
           Right r@RandomRedirect{..} -> do
             State.atomically $ State.insertRandom state _redirectDest
             putStrLn $ ":: Created new redirect " ++ show r
-            respond success
+            respond Wai.success
           Right r@CustomRedirect{..} -> do
             insertRes <- State.atomically $ State.insertIfNotExists state _redirectSlug _redirectDest
             case insertRes of
               State.InsertSuccess -> do
                 putStrLn $ ":: Created new redirect " ++ show r
-                respond success
-              State.SlugAlreadyExists -> respond conflict
-      _ -> respond methodUnsupported
+                respond Wai.success
+              State.SlugAlreadyExists -> respond Wai.conflict
+      _ -> respond Wai.methodUnsupported
     ["style.css"] -> case Wai.requestMethod request of
       "GET" -> do
         contents <- BSLC8.readFile "style.css"
         respond $ Wai.responseLBS HttpTypes.status200 [] contents
-      _ -> respond methodUnsupported
-    _ -> respond notFound
+      _ -> respond Wai.methodUnsupported
+    _ -> respond Wai.notFound
 
 basicAuth :: Config -> Wai.Middleware
 basicAuth Config{..}
@@ -154,27 +153,3 @@ instance FromForm RedirectReq where
       random =
         RandomRedirect
         <$> Form.parseUnique "dest" f
-
--- Wai utils
-
-success :: Wai.Response
-success = Wai.responseLBS HttpTypes.status200 [] ""
-
-badRequest :: Wai.Response
-badRequest = Wai.responseLBS HttpTypes.status400 [] ""
-
-notFound :: Wai.Response
-notFound = Wai.responseLBS HttpTypes.status404 [] ""
-
-methodUnsupported :: Wai.Response
-methodUnsupported = Wai.responseLBS HttpTypes.status405 [] ""
-
-conflict :: Wai.Response
-conflict = Wai.responseLBS HttpTypes.status409 [] ""
-
-redirectTo :: BSC8.ByteString -> Wai.Response
-redirectTo dest =
-  Wai.responseLBS
-    HttpTypes.status302
-    [(HttpTypes.hLocation, dest)]
-    ""
