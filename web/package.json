@@ -1,0 +1,11 @@
+{
+  "name": "shrtn-web",
+  "version": "0.1.0",
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "elm-reactor"
+  },
+  "dependencies": {
+     "elm": "^0.18.0"
+  }
+}
