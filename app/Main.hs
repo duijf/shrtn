@@ -16,4 +16,3 @@ main = do
   http <- Http.new state def
 
   foldr1 Async.race_ [Http.run http, State.run state]
-

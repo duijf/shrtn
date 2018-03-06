@@ -13,17 +13,12 @@ import qualified Control.Concurrent.Async as Async
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString.Lazy.Char8 as BSLC8
 import           Data.Default (Default, def)
-import qualified Data.Either as Either
 import qualified Data.Maybe as Maybe
-import           Data.Text (Text)
-import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import qualified Network.HTTP.Types as HttpTypes
 import qualified Network.Wai.Extended as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.Wai.Middleware.HttpAuth as Auth
-import           Web.FormUrlEncoded (FromForm)
-import qualified Web.FormUrlEncoded as Form
 
 import qualified Shrtn.State as State
 import qualified Shrtn.Views as Views
